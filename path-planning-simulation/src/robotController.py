@@ -65,8 +65,8 @@ class RobotController:
     
     def follow_paths(self):
         """
-        Set up path following - only calculates and sets wheel angles and speeds.
-        Actual movement is performed by move_robot() in the main loop.
+        Initialize path following without actually moving the robot.
+        This only sets up the initial state for path following.
         """
         if not self.path_list:
             print("No paths defined")
@@ -78,186 +78,204 @@ class RobotController:
         self.moving = True
         self.last_update_time = time.time()
         
-        # Position robot at start of first path
+        # Configure wheels for the first path
         current_path = self.path_list[self.current_path_index]
-        if current_path.path_type == 'line':
-            self.robot.x, self.robot.y = current_path.start_point
-        else:  # curve
-            angle = current_path.start_angle
-            self.robot.x = current_path.circle_center[0] + current_path.radius * math.cos(angle)
-            self.robot.y = current_path.circle_center[1] + current_path.radius * math.sin(angle)
+        self._configure_initial_wheels(current_path)
         
         return True
 
+    def _configure_initial_wheels(self, path):
+        """
+        Configure wheels for the initial path segment.
+        """
+        if path.path_type == 'line':
+            # For straight line, set orientation
+            start_x, start_y = path.start_point
+            end_x, end_y = path.end_point
+            dx = end_x - start_x
+            dy = end_y - start_y
+            line_angle = (math.degrees(math.atan2(dy, dx))) % 360
+            self.set_all_wheel_angles(line_angle)
+        else:  # curve
+            # Set wheels tangent to the curve at the starting point
+            center_x, center_y = path.circle_center
+            start_angle = path.start_angle
+            start_x = center_x + path.radius * math.cos(start_angle)
+            start_y = center_y + path.radius * math.sin(start_angle)
+            dx = center_x - start_x
+            dy = center_y - start_y
+            center_angle = (math.degrees(math.atan2(dy, dx))) % 360
+            tangent_angle = (center_angle + 90) % 360
+            self.set_all_wheel_angles(tangent_angle)
+        
+        # Set initial speed based on path velocity
+        velocity = path.velocity if path.velocity is not None else 0.5
+        self.set_all_wheel_speeds(velocity)
+
+    def update_path_following(self):
+        """
+        Update wheel angles and speeds based on current position relative to the path.
+        """
+        if not self.path_list or self.current_path_index >= len(self.path_list):
+            return False
+        
+        current_path = self.path_list[self.current_path_index]
+        current_x, current_y = self.robot.x, self.robot.y
+        
+        # Get velocity for current path
+        velocity = current_path.velocity if current_path.velocity is not None else 0.5
+        
+        # Handle specific path types
+        if current_path.path_type == 'line':
+            # For line paths - code remains the same
+            start_x, start_y = current_path.start_point
+            end_x, end_y = current_path.end_point
+            
+            # Calculate direction vector
+            dx = end_x - start_x
+            dy = end_y - start_y
+            path_length = math.sqrt(dx**2 + dy**2)
+            
+            # Normalize direction
+            if path_length > 0:
+                dx /= path_length
+                dy /= path_length
+            
+            # Calculate progress along line
+            t = ((current_x - start_x) * dx + (current_y - start_y) * dy) / path_length
+            self.path_progress = max(0, min(1, t))
+            
+            # Check if reached end of path
+            if self.path_progress >= 0.98:
+                self._advance_to_next_path()
+                return True
+            
+            # Calculate line angle and set wheel orientation
+            line_angle = (math.degrees(math.atan2(dy, dx))) % 360
+            wheel_angle = line_angle  # Set wheels in the direction of motion
+            self.set_all_wheel_angles(wheel_angle)
+            self.set_all_wheel_speeds(velocity)
+            
+        else:  # curve path - this is where the fix is needed
+            center_x, center_y = current_path.circle_center
+            radius = current_path.radius
+            start_angle = current_path.start_angle
+            end_angle = current_path.end_angle
+            
+            # Vector from center to current position
+            dx = current_x - center_x
+            dy = current_y - center_y
+            
+            # Current angle in the circle
+            current_angle = math.atan2(dy, dx)
+            
+            # Normalize angle for progress calculation
+            if end_angle > start_angle:
+                while current_angle < start_angle:
+                    current_angle += 2 * math.pi
+                while current_angle > end_angle:
+                    current_angle -= 2 * math.pi
+            else:
+                while current_angle > start_angle:
+                    current_angle -= 2 * math.pi
+                while current_angle < end_angle:
+                    current_angle += 2 * math.pi
+            
+            # Calculate progress
+            self.path_progress = (current_angle - start_angle) / (end_angle - start_angle)
+            self.path_progress = max(0, min(1, self.path_progress))
+            
+            # Check if reached end of path
+            if abs(self.path_progress - 1.0) < 0.02:
+                self._advance_to_next_path()
+                return True
+            
+            # Calculate tangent direction for curve
+            # The tangent is perpendicular to the radius vector
+            # For counter-clockwise movement: tangent = 90° clockwise from center angle
+            # For clockwise movement: tangent = 90° counter-clockwise from center angle
+            center_angle = math.degrees(math.atan2(dy, dx))
+            
+            # Determine if we're moving clockwise or counter-clockwise
+            is_clockwise = end_angle < start_angle
+            
+            if is_clockwise:
+                # For clockwise movement, tangent is -90° from center angle
+                tangent_angle = (center_angle - 90) % 360
+            else:
+                # For counter-clockwise movement, tangent is +90° from center angle
+                tangent_angle = (center_angle + 90) % 360
+            
+            # Set wheel angles to follow the tangent direction
+            self.set_all_wheel_angles(tangent_angle)
+            self.set_all_wheel_speeds(velocity)
+        
+        return True
+
+    def _advance_to_next_path(self):
+        """
+        Advance to the next path in the sequence and configure wheels accordingly.
+        """
+        self.current_path_index += 1
+        
+        # Check if we're at the end of all paths
+        if self.current_path_index >= len(self.path_list):
+            self.set_all_wheel_speeds(0)
+            self.moving = False
+            return
+        
+        # Reset progress and configure wheels for the new path
+        self.path_progress = 0
+        next_path = self.path_list[self.current_path_index]
+        self._configure_initial_wheels(next_path)
+
     def move_robot(self):
         """
-        Moves the robot based on current wheel angles, speeds and delta time.
-        If in path-following mode, also updates path progress and wheel settings.
+        Moves the robot based on current wheel angles and speeds.
+        If path following is active, updates the path following logic first.
         """
         if not self.moving:
             return
-            
+        
         # Calculate delta time
         current_time = time.time()
         delta_time = current_time - self.last_update_time
         self.last_update_time = current_time
         
-        # PATH FOLLOWING LOGIC
+        # Update path following if active
         if self.path_list and self.current_path_index < len(self.path_list):
-            current_path = self.path_list[self.current_path_index]
-            
-            # Get velocity for current path (default if not specified)
-            velocity = current_path.velocity if current_path.velocity is not None else 0.5
-            
-            # Calculate path length for proper scaling
-            if current_path.path_type == 'line':
-                x1, y1 = current_path.start_point
-                x2, y2 = current_path.end_point
-                path_length = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-            else:  # curve
-                # Arc length = radius * angle difference
-                angle_diff = abs(current_path.end_angle - current_path.start_angle)
-                path_length = current_path.radius * angle_diff
-            
-            # Calculate progress increment based on velocity and path length
-            progress_increment = (velocity * delta_time * 100) / path_length
-            
-            # Update progress along current path
-            self.path_progress += progress_increment
-            
-            # Check if we've finished the current path
-            if self.path_progress >= 1.0:
-                # Move to next path
-                self.current_path_index += 1
-                if self.current_path_index >= len(self.path_list):
-                    # All paths complete
-                    self.set_all_wheel_speeds(0)
-                    self.moving = False
-                    return
-                    
-                # Reset progress for new path
-                self.path_progress = 0
-                # Get the new current path
-                current_path = self.path_list[self.current_path_index]
-            
-            # Set wheel angles and positions based on path type
-            if current_path.path_type == 'line':
-                # For straight line, use simple linear interpolation
-                start_x, start_y = current_path.start_point
-                end_x, end_y = current_path.end_point
-                
-                # If this is the first update for this path, set wheel angles once
-                if self.path_progress < 0.01:
-                    # Calculate angle from start to end
-                    dx = end_x - start_x
-                    dy = end_y - start_y
-                    
-                    # Calculate the line angle (direction of travel)
-                    line_angle = (math.degrees(math.atan2(dy, dx))) % 360
-                    
-                    # Calculate both possible wheel orientations (parallel to line)
-                    wheel_angle1 = line_angle
-                    wheel_angle2 = (line_angle + 180) % 360
-                    
-                    # Get current wheel angle (use wheel 1 as reference)
-                    current_wheel_angle = self.wheel_angles[1]
-                    
-                    # Calculate angle differences
-                    diff1 = min((wheel_angle1 - current_wheel_angle) % 360, 
-                               (current_wheel_angle - wheel_angle1) % 360)
-                    diff2 = min((wheel_angle2 - current_wheel_angle) % 360, 
-                               (current_wheel_angle - wheel_angle2) % 360)
-                    
-                    # Choose orientation requiring smallest rotation
-                    if diff1 <= diff2:
-                        optimal_angle = wheel_angle1
-                    else:
-                        optimal_angle = wheel_angle2
-                    
-                    # Set wheel angles to optimal orientation
-                    self.set_all_wheel_angles(optimal_angle)
-                    self.set_all_wheel_speeds(velocity)
-                
-                # Calculate current position
-                self.robot.x = start_x + (end_x - start_x) * self.path_progress
-                self.robot.y = start_y + (end_y - start_y) * self.path_progress
-                
-            else:  # curve path
-                # For curve, calculate angle based on progress
-                center_x, center_y = current_path.circle_center
-                radius = current_path.radius
-                start_angle = current_path.start_angle
-                end_angle = current_path.end_angle
-                
-                # Calculate current angle
-                current_angle = start_angle + (end_angle - start_angle) * self.path_progress
-                
-                # Calculate current position on circle
-                self.robot.x = center_x + radius * math.cos(current_angle)
-                self.robot.y = center_y + radius * math.sin(current_angle)
-                
-                # Calculate vector from robot to center
-                dx = center_x - self.robot.x
-                dy = center_y - self.robot.y
-                
-                # Calculate angle pointing directly toward center
-                center_angle = (math.degrees(math.atan2(dy, dx))) % 360
-                
-                # Calculate both possible tangent angles (perpendicular to radius)
-                tangent_angle1 = (center_angle + 90) % 360  # Clockwise tangent
-                tangent_angle2 = (center_angle - 90) % 360  # Counter-clockwise tangent
-                
-                # Get current wheel angles (use wheel 1 as reference)
-                current_wheel_angle = self.wheel_angles[1]
-                
-                # Calculate angle differences (choose the smallest angle change)
-                diff1 = min((tangent_angle1 - current_wheel_angle) % 360, 
-                           (current_wheel_angle - tangent_angle1) % 360)
-                diff2 = min((tangent_angle2 - current_wheel_angle) % 360, 
-                           (current_wheel_angle - tangent_angle2) % 360)
-                
-                # Choose the tangent angle that requires the smallest rotation
-                if diff1 <= diff2:
-                    optimal_angle = tangent_angle1
-                else:
-                    optimal_angle = tangent_angle2
-                
-                # Set wheel angles to the optimal tangent direction
-                self.set_all_wheel_angles(optimal_angle)
-                self.set_all_wheel_speeds(velocity)
+            self.update_path_following()
         
-        # REGULAR MOTOR-BASED MOVEMENT - used when not path following or for manual control
-        else:
-            # Calculate the resultant movement vector
-            dx = 0
-            dy = 0
+        # ACTUAL PHYSICS-BASED MOVEMENT - pure wheel-based movement
+        # Calculate the resultant movement vector based on all wheels
+        dx = 0
+        dy = 0
+        
+        # Process each wheel pair (orientation motor, speed motor)
+        for orientation_motor, position in self.wheel_positions.items():
+            speed_motor = orientation_motor + 1
+            angle_rad = math.radians(self.wheel_angles[orientation_motor])
+            speed = self.wheel_speeds[speed_motor]
             
-            # Process each wheel pair (orientation motor, speed motor)
-            for orientation_motor, position in self.wheel_positions.items():
-                speed_motor = orientation_motor + 1
-                angle = math.radians(self.wheel_angles[orientation_motor])
-                speed = self.wheel_speeds[speed_motor]
-                
-                # Calculate this wheel's contribution to movement
-                wheel_dx = speed * math.cos(angle)
-                wheel_dy = speed * math.sin(angle)
-                
-                # Add to resultant movement
-                dx += wheel_dx
-                dy += wheel_dy
+            # Calculate this wheel's contribution to movement
+            wheel_dx = speed * math.cos(angle_rad)
+            wheel_dy = speed * math.sin(angle_rad)
             
-            # Normalize and scale movement
-            magnitude = math.sqrt(dx**2 + dy**2)
-            if magnitude > 0:
-                # Scale factor determines how fast the robot moves
-                scale = 2.0 / len(self.wheel_positions)
-                dx = (dx / magnitude) * scale
-                dy = (dy / magnitude) * scale
-            
-            # Apply delta time scaling to movement
-            dx *= delta_time * 60  # Scale by delta time and a base factor
-            dy *= delta_time * 60
-            
-            # Update robot position
-            self.robot.x += dx
-            self.robot.y += dy
+            # Add to resultant movement
+            dx += wheel_dx
+            dy += wheel_dy
+        
+        # Average the movement contributions from all wheels
+        num_wheels = len(self.wheel_positions)
+        if num_wheels > 0:
+            dx /= num_wheels
+            dy /= num_wheels
+        
+        # Apply velocity scaling
+        movement_speed = 100  # Base speed factor
+        dx *= movement_speed * delta_time
+        dy *= movement_speed * delta_time
+        
+        # Update robot position
+        self.robot.x += dx
+        self.robot.y += dy
