@@ -12,7 +12,7 @@ class Robot:
         self.body_color = body_color
         self.wheel_color = wheel_color
         # Initialize wheels to face up (90 degrees)
-        self.wheel_angles = {1: 90, 3: 90, 5: 90, 7: 90}
+        self.wheel_angles = {1: 270, 3: 270, 5: 270, 7: 270}
 
     def draw(self, screen):
         # Calculate centered position
@@ -22,6 +22,54 @@ class Robot:
         # Draw robot body
         robot_body = pygame.Rect(center_x, center_y, self.width, self.height)
         pygame.draw.rect(screen, self.body_color, robot_body)
+        
+        # Draw colored triangles at the center of each side to identify orientation
+        triangle_size = 15
+        
+        # Define colors for each side
+        side_colors = {
+            "top": (255, 100, 100),     # Red for top
+            "right": (100, 255, 100),   # Green for right
+            "bottom": (100, 100, 255),  # Blue for bottom
+            "left": (255, 255, 0)       # Yellow for left
+        }
+        
+        # Calculate center points for each side
+        side_centers = {
+            "top": (center_x + self.width // 2, center_y),                  # Top center
+            "right": (center_x + self.width, center_y + self.height // 2),  # Right center
+            "bottom": (center_x + self.width // 2, center_y + self.height), # Bottom center
+            "left": (center_x, center_y + self.height // 2)                 # Left center
+        }
+        
+        # Draw triangles pointing outward from each side
+        # Top triangle (red)
+        pygame.draw.polygon(screen, side_colors["top"], [
+            (side_centers["top"][0], side_centers["top"][1]),
+            (side_centers["top"][0] - triangle_size, side_centers["top"][1] + triangle_size),
+            (side_centers["top"][0] + triangle_size, side_centers["top"][1] + triangle_size)
+        ])
+        
+        # Right triangle (green)
+        pygame.draw.polygon(screen, side_colors["right"], [
+            (side_centers["right"][0], side_centers["right"][1]),
+            (side_centers["right"][0] - triangle_size, side_centers["right"][1] - triangle_size),
+            (side_centers["right"][0] - triangle_size, side_centers["right"][1] + triangle_size)
+        ])
+        
+        # Bottom triangle (blue)
+        pygame.draw.polygon(screen, side_colors["bottom"], [
+            (side_centers["bottom"][0], side_centers["bottom"][1]),
+            (side_centers["bottom"][0] - triangle_size, side_centers["bottom"][1] - triangle_size),
+            (side_centers["bottom"][0] + triangle_size, side_centers["bottom"][1] - triangle_size)
+        ])
+        
+        # Left triangle (yellow)
+        pygame.draw.polygon(screen, side_colors["left"], [
+            (side_centers["left"][0], side_centers["left"][1]),
+            (side_centers["left"][0] + triangle_size, side_centers["left"][1] - triangle_size),
+            (side_centers["left"][0] + triangle_size, side_centers["left"][1] + triangle_size)
+        ])
 
         # Wheel positions
         wheel_positions = {

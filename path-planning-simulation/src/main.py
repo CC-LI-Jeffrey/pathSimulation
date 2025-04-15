@@ -24,8 +24,9 @@ GREEN = (0, 200, 0)
 PURPLE = (128, 0, 128)
 
 # Robot dimensions
-ROBOT_WIDTH, ROBOT_HEIGHT = 100, 60
-WHEEL_WIDTH, WHEEL_HEIGHT = 20, 10
+ROBOT_SLANT = 80
+ROBOT_WIDTH, ROBOT_HEIGHT = math.sqrt(pow(ROBOT_SLANT,2)),math.sqrt(pow(ROBOT_SLANT,2))
+WHEEL_WIDTH, WHEEL_HEIGHT = 15, 8
 
 # Clock for controlling frame rate
 clock = pygame.time.Clock()
@@ -33,7 +34,6 @@ clock = pygame.time.Clock()
 # Window center
 CENTER_X = WIDTH // 2
 CENTER_Y = HEIGHT // 2
-
 
 def generate_u_shaped_path(center_x, center_y, radius=200, straight_length=200, velocity=1.0):
     """

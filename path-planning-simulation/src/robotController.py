@@ -150,12 +150,6 @@ class RobotController:
                 self._advance_to_next_path()
                 return True
             
-            # Calculate line angle and set wheel orientation
-            line_angle = (math.degrees(math.atan2(dy, dx))) % 360
-            wheel_angle = line_angle  # Set wheels in the direction of motion
-            self.set_all_wheel_angles(wheel_angle)
-            self.set_all_wheel_speeds(velocity)
-            
         else:  # curve path - this is where the fix is needed
             center_x, center_y = current_path.circle_center
             radius = current_path.radius
@@ -208,7 +202,6 @@ class RobotController:
             
             # Set wheel angles to follow the tangent direction
             self.set_all_wheel_angles(tangent_angle)
-            self.set_all_wheel_speeds(velocity)
         
         return True
 
