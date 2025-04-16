@@ -1,8 +1,6 @@
 import math
 import time
-import threading
 from collections import defaultdict
-import pygame
 
 class RobotController:
     def __init__(self, robot):
